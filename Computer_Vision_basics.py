@@ -274,3 +274,136 @@ compare_results["training_time"] = [total_train_time_model,
                                     total_train_time_model_0]
 
 compare_results
+
+#Comparision by plotting 
+compare_results.set_index("model_name")["model_loss"].plot(kind="barh")
+plt.xlabel("loss")
+plt.ylabel("model")
+
+#MAKING PREDICTIONS 
+def make_predictions(model: torch.nn.Module,
+                     data: list,
+                     device: torch.device=device):
+  pred_probs = []
+  model.to(device)
+  model.eval()
+  with torch.inference_mode():
+    for sample in data:
+      sample = torch.unsqueeze(sample, dim=0).to(device)
+
+      pred_logits = model(sample)
+      pred_prob = torch.softmax(pred_logits.squeeze(), dim=0)
+      pred_probs.append(pred_prob.cpu())
+
+  return torch.stack(pred_probs)
+
+
+#VISUALIZING THE PREDICTIONS WITH SOME RANDOM DATA FROM OUR ORIGINAL DATA (NOT LOADED ONE TO TEST IT) 
+import random
+RANDOM_SEED = 42 
+test_samples = []
+test_labels = []
+
+for sample, label in random.sample(list(test_data), k=9):
+  test_samples.append(sample)
+  test_labels.append(label)
+
+plt.imshow(test_samples[0].squeeze(), cmap="gray")
+plt.title(class_names[test_labels[0]])
+
+#PLOTTING PREDICTIONS AND VISUALIZING THEM IN A 9,9 FIGURE
+
+plt.figure(figsize=(9, 9))
+nrows = 3
+ncols = 3 
+
+for i, sample in enumerate(test_samples):
+  plt.subplot(nrows, ncols, i+1)
+  plt.imshow(sample.squeeze(), cmap="gray")
+  pred_label = class_names[pred_labels[i]]
+  truth_label = class_names[test_labels[i]]
+  title_text = f"Pred: {pred_label} | Truth: {truth_label}"
+  if pred_label == truth_label:
+    plt.title(title_text, fontsize=10, c="b")  #LABELS WILL BE BLUE IF MATCHES BECAUSE IM A COLORBLIND :)
+  else:
+    plt.title(title_text, fontsize=10, c="r")  #LABELS ARE RED WHEN MISSMATCH
+  plt.axis(False)
+
+
+# MAKING WHOLE PREDICTIONS WITH THE DATA 
+y_preds = []
+model.eval()
+with torch.inference_mode():
+  for X, y in tqdm(test_data_loader, desc="Making predictions..."):
+    X, y = X.to(device), y.to(device)
+    y_logits = model(X)
+    y_pred_probs = torch.softmax(y_logits.squeeze(), dim=0).argmax(dim=1)
+    y_preds.append(y_pred_probs.cpu())
+
+y_pred_tensor = torch.cat(y_preds)
+y_pred_tensor[:10], len(y_pred_tensor)
+
+# IMPORTING CONFUSION MATRIX TO FURTHER EVALUATE AND SEE THE POSSIBLE ERROR LABELS
+try:
+  import torchmetrics, mlxtend
+  print(f"mlxtend version: {mlxtend.__version__}")
+  assert int(mlxtend.__version__.split(".")[1]) >= 19, "mlxtend version should be 0.19.0 or higher" 
+except:
+  !pip install torchmetrics -U mlxtend
+  import torchmetrics, mlxtend
+  print(f"mlxtend version: {mlxtend.__version__}")
+
+from torchmetrics import ConfusionMatrix
+from mlxtend.plotting import plot_confusion_matrix
+
+confmat = ConfusionMatrix(task="Multiclass", num_classes=len(class_names))
+confmat_tensor = confmat(
+    preds=y_pred_tensor,
+    target=test_data.targets
+    )
+
+fig, ax = plot_confusion_matrix(
+    conf_mat=confmat_tensor.numpy(),
+    class_names=class_names,
+    figsize=(10, 7)
+    )
+
+
+# LAST BUT NOT LEAST, SAVING AND LOADING MODEL FOR FURTHER USAGE 
+from pathlib import Path
+
+MODEL_PATH = Path("models")
+MODEL_PATH.mkdir(parents=True, exist_ok=True)
+
+MODEL_NAME = "CNN_FASHIONMNIST_MODEL"
+MODEL_SAVE_PATH = MODEL_PATH / MODEL_NAME
+
+print(f"Saving model to :{MODEL_SAVE_PATH}")
+torch.save(obj=model.state_dict(), f=MODEL_SAVE_PATH)
+
+# LOADING 
+torch.manual_seed(42)
+
+loaded_model = FashionMNISTModelCNN(input_shape=1, hidden_units=10, output_shape=len(class_names))
+loaded_model.load_state_dict(torch.load(f=MODEL_SAVE_PATH))
+loaded_model.to(device)
+
+# COMPARING TWO MODEL IF LOADED WITHOUT ANY ERRORS
+torch.manual_seed(42)
+
+loaded_model_res = eval_model(
+    model=loaded_model,
+    data_loader=test_data_loader,
+    loss_fn=loss_fn,
+    accuracy_fn=Accuracy,
+    device=device
+)
+
+loaded_model_res
+model_results
+
+torch.isclose(
+    torch.tensor(model_results["model_loss"]),
+    torch.tensor(loaded_model_res["model_loss"]),
+    atol=1e-02 # ITS NOT NECESSARY, IF THE PRINT OF .isclose IS TURNING FALSE YOU CAN CHECK THE TOLERANCE LEVEL WITH atol=1e-02 (means check 0.12 only) atol=1e-08(means check 0.12345678)
+    )
