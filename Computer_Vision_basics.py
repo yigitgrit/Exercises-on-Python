@@ -268,3 +268,9 @@ import pandas as pd
 compare_results = pd.DataFrame([model_results, model_0_results])
 
 compare_results
+
+#+ADDITION+ IF NEEDED TIME CAN BE ADDED TOO.
+compare_results["training_time"] = [total_train_time_model,
+                                    total_train_time_model_0]
+
+compare_results
